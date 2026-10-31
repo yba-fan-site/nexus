@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "nexus",
+  "version": "${version}",
+  "name": "NEXUS",
+  "description": "A customizable client-side visual and HUD mod.",
+  "authors": ["NEXUS Team"],
+  "environment": "client",
+  "entrypoints": {
+    "client": ["dev.nexus.NexusClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
