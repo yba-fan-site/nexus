@@ -1,0 +1,416 @@
+org.gradle.jvmargs=-Xmx2G
+org.gradle.parallel=true
+
+minecraft_version=1.21.11
+yarn_mappings=1.21.11+build.6
+loader_version=0.19.3
+loom_version=1.17.13
+fabric_version=0.141.6+1.21.11
+
+mod_version=0.1.0
+maven_group=dev.nexus
+archives_base_name=nexus
+
+# NEXUS Client — v0.2 starter
+
+Client-side Fabric mod scaffold for Minecraft **1.21.11**.
+
+## Requirements
+- JDK 21
+- IntelliJ IDEA (recommended)
+- Fabric Loader and Fabric API for Minecraft 1.21.11
+- Internet access on the first Gradle sync/build
+
+## Open and build
+1. Extract this archive.
+2. Open the `NEXUS` folder in IntelliJ IDEA as a Gradle project.
+3. Set the Gradle JVM to JDK 21.
+4. Wait for Gradle sync.
+5. Run the Gradle task `build`.
+6. The mod JAR will be in `build/libs/`.
+
+## Controls
+- Right Shift: open the NEXUS menu
+- Click category tabs to switch categories
+- Click a module row to toggle it
+- Close button or Escape: close the menu
+
+## Current modules
+- Target ESP — registered toggle placeholder; render implementation is next.
+- Keystrokes — registered toggle placeholder; HUD implementation is next.
+- CPS Counter — registered toggle placeholder; click tracking/HUD implementation is next.
+
+The module framework and GUI toggles are implemented. ESP rendering, HUD rendering,
+settings persistence, draggable HUD editor, and animation polish are still planned.
+
+pluginManagement {
+    repositories {
+        maven { url = 'https://maven.fabricmc.net/' }
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        maven { url = 'https://maven.fabricmc.net/' }
+        mavenCentral()
+    }
+}
+rootProject.name = 'NEXUS'
+
+name: Build NEXUS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.2.1'
+
+      - name: Build mod
+        run: gradle build --no-daemon
+
+      - name: Upload JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: NEXUS-Fabric-1.21.11
+          path: |
+            build/libs/*.jar
+            !build/libs/*-sources.jar
+          if-no-files-found: error
+          retention-days: 14
+
+{
+  "schemaVersion": 1,
+  "id": "nexus",
+  "version": "${version}",
+  "name": "NEXUS",
+  "description": "A customizable client-side visual and HUD mod.",
+  "authors": ["NEXUS Team"],
+  "environment": "client",
+  "entrypoints": {
+    "client": ["dev.nexus.NexusClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
+
+package dev.nexus;
+
+import dev.nexus.gui.ClickGuiScreen;
+import dev.nexus.module.ModuleManager;
+import dev.nexus.module.impl.TargetEspModule;
+import dev.nexus.module.impl.KeystrokesModule;
+import dev.nexus.module.impl.CpsModule;
+import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.minecraft.client.option.KeyBinding;
+import net.minecraft.client.util.InputUtil;
+import org.lwjgl.glfw.GLFW;
+
+public final class NexusClient implements ClientModInitializer {
+    private static KeyBinding openMenuKey;
+
+    @Override
+    public void onInitializeClient() {
+        ModuleManager.register(new TargetEspModule());
+        ModuleManager.register(new KeystrokesModule());
+        ModuleManager.register(new CpsModule());
+        openMenuKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+                "key.nexus.open_menu",
+                InputUtil.Type.KEYSYM,
+                GLFW.GLFW_KEY_RIGHT_SHIFT,
+                KeyBinding.Category.MISC
+        ));
+
+        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            while (openMenuKey.wasPressed()) {
+                if (client.currentScreen == null) {
+                    client.setScreen(new ClickGuiScreen());
+                }
+            }
+        });
+    }
+}
+
+package dev.nexus.gui;
+
+import dev.nexus.module.Module;
+import dev.nexus.module.ModuleCategory;
+import dev.nexus.module.ModuleManager;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.text.Text;
+
+public final class ClickGuiScreen extends Screen {
+    private static final int PURPLE = 0xFF9B5CFF;
+    private static final int PANEL = 0xF0181720;
+    private static final int CARD = 0xFF24212D;
+    private ModuleCategory selectedCategory = ModuleCategory.VISUALS;
+
+    public ClickGuiScreen() {
+        super(Text.literal("NEXUS"));
+    }
+
+    @Override
+    protected void init() {
+        rebuildButtons();
+    }
+
+    private void rebuildButtons() {
+        clearChildren();
+        int left = this.width / 2 - 165;
+        int top = this.height / 2 - 112;
+
+        int tabY = top + 43;
+        int index = 0;
+        for (ModuleCategory category : ModuleCategory.values()) {
+            final ModuleCategory chosen = category;
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal((category == selectedCategory ? "» " : "") + category.displayName()),
+                    button -> {
+                        selectedCategory = chosen;
+                        rebuildButtons();
+                    }).dimensions(left + 12, tabY + index * 29, 112, 23).build());
+            index++;
+        }
+
+        int row = 0;
+        for (Module module : ModuleManager.getModules(selectedCategory)) {
+            final Module selected = module;
+            String state = module.isEnabled() ? "ON" : "OFF";
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.literal(module.getName() + "  [" + state + "]"),
+                    button -> {
+                        selected.toggle();
+                        rebuildButtons();
+                    }).dimensions(left + 142, top + 44 + row * 30, 176, 24).build());
+            row++;
+        }
+
+        this.addDrawableChild(ButtonWidget.builder(Text.literal("Close"), button -> this.close())
+                .dimensions(left + 220, top + 181, 98, 22).build());
+    }
+
+    @Override
+    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+        this.renderBackground(context, mouseX, mouseY, delta);
+
+        int left = this.width / 2 - 165;
+        int top = this.height / 2 - 112;
+
+        context.fill(left, top, left + 330, top + 224, PANEL);
+        context.fill(left, top, left + 330, top + 3, PURPLE);
+        context.fill(left + 132, top + 38, left + 134, top + 174, 0xFF494253);
+
+        context.drawText(this.textRenderer, "N E X U S", left + 14, top + 12, 0xFFFFFFFF, false);
+        context.drawText(this.textRenderer, "CLIENT  /  MODULES", left + 14, top + 26, PURPLE, false);
+        context.drawText(this.textRenderer, selectedCategory.displayName().toUpperCase(), left + 145, top + 27, 0xFFFFFFFF, false);
+
+        int enabled = (int) ModuleManager.getModules().stream().filter(Module::isEnabled).count();
+        context.drawText(this.textRenderer, "ENABLED: " + enabled, left + 145, top + 174, 0xFFB8B2C4, false);
+
+        super.render(context, mouseX, mouseY, delta);
+    }
+
+    @Override
+    public boolean shouldPause() {
+        return false;
+    }
+}
+
+package dev.nexus.module;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+public final class ModuleManager {
+    private static final List<Module> MODULES = new ArrayList<>();
+
+    private ModuleManager() {}
+
+    public static void register(Module module) {
+        MODULES.add(module);
+    }
+
+    public static List<Module> getModules() {
+        return Collections.unmodifiableList(MODULES);
+    }
+
+    public static List<Module> getModules(ModuleCategory category) {
+        return MODULES.stream()
+                .filter(module -> module.getCategory() == category)
+                .toList();
+    }
+
+    public static Module getByName(String name) {
+        return MODULES.stream()
+                .filter(module -> module.getName().equalsIgnoreCase(name))
+                .findFirst()
+                .orElse(null);
+    }
+}
+
+package dev.nexus.module;
+
+public enum ModuleCategory {
+    VISUALS("Visuals"),
+    HUD("HUD"),
+    RENDER("Render"),
+    SETTINGS("Settings");
+
+    private final String displayName;
+
+    ModuleCategory(String displayName) {
+        this.displayName = displayName;
+    }
+
+    public String displayName() {
+        return displayName;
+    }
+}
+
+package dev.nexus.module;
+
+public abstract class Module {
+    private final String name;
+    private final String description;
+    private final ModuleCategory category;
+    private boolean enabled;
+
+    protected Module(String name, String description, ModuleCategory category) {
+        this.name = name;
+        this.description = description;
+        this.category = category;
+    }
+
+    public final void toggle() {
+        setEnabled(!enabled);
+    }
+
+    public void setEnabled(boolean enabled) {
+        if (this.enabled == enabled) return;
+        this.enabled = enabled;
+        if (enabled) onEnable();
+        else onDisable();
+    }
+
+    protected void onEnable() {}
+    protected void onDisable() {}
+
+    public String getName() { return name; }
+    public String getDescription() { return description; }
+    public ModuleCategory getCategory() { return category; }
+    public boolean isEnabled() { return enabled; }
+}
+
+package dev.nexus.module.impl;
+
+import dev.nexus.module.Module;
+import dev.nexus.module.ModuleCategory;
+
+public final class TargetEspModule extends Module {
+    public TargetEspModule() {
+        super("Target ESP", "Highlights the entity you are targeting.", ModuleCategory.VISUALS);
+    }
+}
+
+package dev.nexus.module.impl;
+
+import dev.nexus.module.Module;
+import dev.nexus.module.ModuleCategory;
+
+public final class KeystrokesModule extends Module {
+    public KeystrokesModule() {
+        super("Keystrokes", "Displays movement keys and mouse clicks.", ModuleCategory.HUD);
+    }
+}
+
+package dev.nexus.module.impl;
+
+import dev.nexus.module.Module;
+import dev.nexus.module.ModuleCategory;
+
+public final class CpsModule extends Module {
+    public CpsModule() {
+        super("CPS Counter", "Displays left and right clicks per second.", ModuleCategory.HUD);
+    }
+}
+
+.gradle/
+build/
+.idea/
+*.iml
+run/
+logs/
+
+plugins {
+    id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+    id 'maven-publish'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+repositories {
+    maven { url = 'https://maven.fabricmc.net/' }
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+}
+
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
